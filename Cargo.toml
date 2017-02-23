@@ -1,0 +1,29 @@
+[package]
+name = "atlatl"
+version = "0.0.1"
+
+authors = ["tapeinosyne <ndr@qef.io>"]
+license = "Apache-2.0/MIT"
+repository = "https://github.com/tapeinosyne/atlatl"
+homepage = "https://github.com/tapeinosyne/atlatl"
+# documentation = "https://docs.rs/atlatl"
+
+readme = "README.md"
+description = "Double-array tries."
+keywords = ["double-array", "trie"]
+
+[features]
+serialization = ["serde", "serde_derive"]
+
+[dependencies]
+# num = "*"
+fnv = "*"
+
+serde = { version = "0.9", optional = true }
+serde_derive = { version = "0.9", optional = true }
+
+[dev-dependencies]
+fst = "0.1"
+rand = "0.3"
+lazy_static = "0.2"
+quickcheck = "0.4"
