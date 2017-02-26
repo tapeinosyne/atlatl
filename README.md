@@ -15,3 +15,10 @@ Presently, only a limited-capability Dart representation of minimal finite subse
 - Theppitak Karoonboonyanan, [An Implementation of Double-Array Trie](https://linux.thai.net/~thep/datrie/datrie.html#References)
 - Andrew Gallant, [`fst`](https://github.com/BurntSushi/fst)
 - Susumu Yata, [`Darts-clone`](https://github.com/s-yata/darts-clone)
+
+
+## License
+
+`atlatl` © 2017 tapeinosyne, dual-licensed under the terms of either:
+  - the Apache License, Version 2.0
+  - the MIT license
