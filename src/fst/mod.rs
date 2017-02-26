@@ -1,7 +1,11 @@
 pub mod builder;
+pub mod output;
 
 use fnv::FnvHashMap;
 use segment::IndexSegments;
+
+use index::Index;
+use fst::output::Output;
 
 
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
@@ -47,31 +51,31 @@ impl Default for Terminal {
 
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct FST {
-    pub da : Dart,
-    pub state_output : FnvHashMap<usize, u16>
+pub struct FST<I, O> where I : Index, O : Output {
+    pub da : Dart<I, O>,
+    pub state_output : FnvHashMap<I, O>
 }
 
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Dart {
+pub struct Dart<I, O> {
     pub stipe : Vec<Stipe>,
-    pub next : Vec<usize>,
-    pub output : Vec<u16>,
+    pub next : Vec<I>,
+    pub output : Vec<O>,
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-pub struct State { pub index : usize, pub terminal : Terminal }
+pub struct State<I> { pub index : I, pub terminal : Terminal }
 
-impl FST {
-    pub fn from_builder(builder : &builder::Builder) -> Self {
+impl<I, O> FST<I, O> where I : Index, O : Output {
+    pub fn from_builder(builder : &builder::Builder<I, O>) -> Self {
         let mut repr = Repr::default();
         repr.from_builder(builder);
         repr.into_dart()
     }
 
-    pub fn transition(&self, state : usize, input : u8) -> Option<State> {
-        let e = state + (1 + input as usize);
+    pub fn transition(&self, state : I, input : u8) -> Option<State<I>> {
+        let e = state.as_usize() + (1 + input as usize);
         match self.da.stipe.get(e) {
             Some(&Stipe { check, terminal })
                 if check == input => Some(State { index: self.da.next[e], terminal: terminal }),
@@ -94,19 +98,19 @@ impl FST {
         state.terminal.is()
     }
 
-    pub fn get<K>(&self, key : K) -> Option<u16>
+    pub fn get<K>(&self, key : K) -> Option<O>
         where K : AsRef<[u8]>
     {
-        let mut out = 0;
-        let mut state = 0;
+        let mut out = O::zero();
+        let mut state = I::zero();
         let mut terminal = self.da.stipe[0].terminal;
         for &label in key.as_ref() {
-            let e = state + (1 + label as usize);
+            let e = state.as_usize() + (1 + label as usize);
             let stipe = self.da.stipe.get(e);
             match stipe {
                 Some(stipe) if stipe.check == label => {
                     terminal = stipe.terminal;
-                    out += self.da.output[e];
+                    out.mappend_assign(self.da.output[e]);
                     state = self.da.next[e];
                 },
                 _ => return None
@@ -116,7 +120,7 @@ impl FST {
         match terminal {
             Terminal::Not   => None,
             Terminal::Empty => Some(out),
-            Terminal::Inner => Some(out + self.state_output[&state])
+            Terminal::Inner => Some(out.mappend(self.state_output[&state]))
         }
     }
 
@@ -128,8 +132,8 @@ impl FST {
 
     fn resize(&mut self, length : usize) {
         self.da.stipe.resize(length, Stipe::default());
-        self.da.next.resize(length, 0);
-        self.da.output.resize(length, 0);
+        self.da.next.resize(length, I::zero());
+        self.da.output.resize(length, O::zero());
     }
 
     fn reserve(&mut self, n : usize) {
@@ -140,54 +144,53 @@ impl FST {
 }
 
 
-type DAState = usize;
 type BuilderState = usize;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Repr {
+pub struct Repr<I, O> where I : Index, O : Output {
     stack : Vec<BuilderState>,
     // Indexed by BuilderState
-    registry : Vec<Option<DAState>>,
+    registry : Vec<Option<I>>,
     segments : IndexSegments,
     // alphabet : Alphabet,
-    fst : FST
+    fst : FST<I, O>
 }
 
-impl Repr {
-    pub fn into_dart(self) -> FST {
+impl<I, O> Repr<I, O> where I : Index, O : Output {
+    pub fn into_dart(self) -> FST<I, O> {
         self.fst
     }
 
-    pub fn from_builder(&mut self, fst : &builder::Builder) {
+    pub fn from_builder(&mut self, fst : &builder::Builder<I, O>) {
         self.reserve(fst.size());
         self.registry.resize(fst.size(), None);
         let eph = &builder::State::default();
         let mut states = vec![eph; fst.size()];
-        for (state, &s_i) in fst.registry.iter() { states[s_i] = state }
+        for (state, &s_i) in fst.registry.iter() { states[s_i.as_usize()] = state }
 
         self.expand();
-        let root_idx = fst.root();
-        let root_next = self.settle(states[root_idx]);
+        let root_idx = fst.root().as_usize();
+        let root_next = I::as_index(self.settle(states[root_idx]));
         self.fst.da.next[0] = root_next;
         self.registry[root_idx] = Some(root_next);
         if states[root_idx].terminal {
             self.fst.da.stipe[0].terminal = Terminal::Inner;
-            self.fst.state_output.insert(0, states[root_idx].final_output);
+            self.fst.state_output.insert(I::zero(), states[root_idx].final_output);
         }
 
         self.stack.push(root_idx);
         while let Some(s_i) = self.stack.pop() {
             for trans in &states[s_i].transitions {
-                let t = trans.destination;
+                let t = trans.destination.as_usize();
                 let (is_final, final_output) = (states[t].terminal, states[t].final_output);
-                let terminal = match (is_final, final_output) {
+                let terminal = match (is_final, final_output.is_zero()) {
                     (false, _) => Terminal::Not,
-                    (true, 0) => Terminal::Empty,
-                    (true, _) => Terminal::Inner
+                    (true, true) => Terminal::Empty,
+                    (true, false) => Terminal::Inner
                 };
 
                 let label = trans.label;
-                let e = self.registry[s_i].unwrap() + (1 + label as usize);
+                let e = self.registry[s_i].unwrap().as_usize() + (1 + label as usize);
                 if e >= self.fst.len() { self.expand(); }
 
                 self.fst.da.output[e] = trans.output;
@@ -195,7 +198,7 @@ impl Repr {
                 self.fst.da.next[e] = match self.registry[t] {
                     Some(i) => i,
                     None => {
-                        let next = self.settle(&states[t]);
+                        let next = I::as_index(self.settle(&states[t]));
                         self.registry[t] = Some(next);
                         self.stack.push(t);
                         if terminal.is_inner() {
@@ -208,7 +211,7 @@ impl Repr {
         }
     }
 
-    fn settle(&mut self, state : &builder::State) -> usize {
+    fn settle(&mut self, state : &builder::State<I, O>) -> usize {
         let inputs : Vec<_> = state.transitions.iter().map(|t| t.label).collect();
         self.first_available(&inputs)
     }

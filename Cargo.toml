@@ -16,7 +16,7 @@ keywords = ["double-array", "trie"]
 serialization = ["serde", "serde_derive"]
 
 [dependencies]
-# num = "*"
+num-traits = "*"
 fnv = "*"
 
 serde = { version = "0.9", optional = true }

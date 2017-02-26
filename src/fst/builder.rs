@@ -1,40 +1,42 @@
 use fnv::FnvHashMap;
 
+use fst::output::Output;
+use index::Index;
 
-pub type Index = usize; // to be made generic
+
 pub type Label = u8;
 
 #[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq)]
-pub struct Transition {
+pub struct Transition<I, O> {
     pub label : Label,
-    pub output : u16,   // to be made generic
-    pub destination : Index,
+    pub output : O,
+    pub destination : I,
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
-pub struct State {
+pub struct State<I, O> {
     pub terminal : bool,
-    pub final_output : u16,
-    pub transitions : Vec<Transition>
+    pub final_output : O,
+    pub transitions : Vec<Transition<I, O>>
 }
 
 
 /// A transition without a fixed destination state.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-struct DanglingArc {
+struct DanglingArc<O> {
     label : Label,
-    output : u16
+    output : O
 }
 
-impl DanglingArc {
-    fn from_label(label : Label) -> DanglingArc {
+impl<O> DanglingArc<O> where O : Output {
+    fn from_label(label : Label) -> DanglingArc<O> {
         DanglingArc {
             label : label,
             ..DanglingArc::default()
         }
     }
 
-    fn from_pair(label : Label, output : u16) -> DanglingArc {
+    fn from_pair(label : Label, output : O) -> DanglingArc<O> {
         DanglingArc {
             label : label,
             output : output
@@ -44,27 +46,27 @@ impl DanglingArc {
 
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct DanglingState {
-    pub state : State,
-    pub last_arc : Option<DanglingArc>
+struct DanglingState<I, O> {
+    pub state : State<I, O>,
+    pub last_arc : Option<DanglingArc<O>>
 }
 
-impl DanglingState {
-    fn from_label(label : Label) -> DanglingState {
+impl<I, O> DanglingState<I, O> where I : Index, O : Output {
+    fn from_label(label : Label) -> DanglingState<I, O> {
         DanglingState {
             last_arc : Some(DanglingArc::from_label(label)),
             state : State::default()
         }
     }
 
-    fn empty_terminal() -> DanglingState {
+    fn empty_terminal() -> DanglingState<I, O> {
         DanglingState {
             state : State { terminal : true, ..State::default() },
             last_arc : None
         }
     }
 
-    fn affix_last(&mut self, index : Index) {
+    fn affix_last(&mut self, index : I) {
         if let Some(arc) = self.last_arc.take() {
             self.state.transitions.push(Transition {
                 label : arc.label,
@@ -74,21 +76,21 @@ impl DanglingState {
         }
     }
 
-    fn redistribute_output(&mut self, diff : u16) {
-        if diff != 0 {
-            if self.state.terminal { self.state.final_output += diff }
-            if let Some(ref mut t) = self.last_arc { t.output += diff }
-            for t in &mut self.state.transitions { t.output += diff }
+    fn redistribute_output(&mut self, diff : O) {
+        if diff != O::zero() {
+            if self.state.terminal { self.state.final_output.mappend_assign(diff) }
+            if let Some(ref mut t) = self.last_arc { t.output.mappend_assign(diff) }
+            for t in &mut self.state.transitions { t.output.mappend_assign(diff) }
         }
     }
 }
 
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct DanglingPath { stack : Vec<DanglingState> }
+struct DanglingPath<I, O> { stack : Vec<DanglingState<I, O>> }
 
-impl DanglingPath {
-    fn new() -> DanglingPath {
+impl<I, O> DanglingPath<I, O> where I : Index, O : Output {
+    fn new() -> DanglingPath<I, O> {
         let mut dangling = DanglingPath { stack : Vec::with_capacity(64) };
         dangling.append_empty();
         dangling
@@ -98,36 +100,36 @@ impl DanglingPath {
         self.stack.push(DanglingState::default());
     }
 
-    fn pop_empty(&mut self) -> State {
+    fn pop_empty(&mut self) -> State<I, O> {
         let dangling = self.stack.pop().unwrap();
         assert!(dangling.last_arc.is_none());
         dangling.state
     }
 
-    fn pop_root(&mut self) -> State {
+    fn pop_root(&mut self) -> State<I, O> {
         assert!(self.stack.len() == 1);
         assert!(self.stack[0].last_arc.is_none());
         self.stack.pop().unwrap().state
     }
 
 
-    fn set_root_output(&mut self, output : u16) {
+    fn set_root_output(&mut self, output : O) {
         self.stack[0].state.terminal = true;
         self.stack[0].state.final_output = output;
     }
 
-    fn finalize(&mut self, index : Index) -> State {
+    fn finalize(&mut self, index : I) -> State<I, O> {
         let mut dangling = self.stack.pop().unwrap();
         dangling.affix_last(index);
         dangling.state
     }
 
-    fn finalize_last(&mut self, index : Index) {
+    fn finalize_last(&mut self, index : I) {
         let last = self.stack.len() - 1;
         self.stack[last].affix_last(index);
     }
 
-    fn add_suffix(&mut self, suffix : &[u8], output : u16) {
+    fn add_suffix(&mut self, suffix : &[u8], output : O) {
         if suffix.is_empty() { return; }
         let last = self.stack.len() - 1;
         assert!(self.stack[last].last_arc.is_none());
@@ -137,16 +139,15 @@ impl DanglingPath {
         self.stack.push(DanglingState::empty_terminal());
     }
 
-    fn redistribute_prefix(&mut self, key : &[u8], mut out : u16) -> (usize, u16) {
-        use std::cmp;
+    fn redistribute_prefix(&mut self, key : &[u8], mut out : O) -> (usize, O) {
         let mut i = 0;
         while i < key.len() {
             let diff = match self.stack[i].last_arc.as_mut() {
                 Some(ref mut t) if t.label == key[i] => {
                     i += 1;
-                    let prefix = cmp::min(t.output, out);
-                    let diff = t.output - prefix;
-                    out -= prefix;
+                    let prefix = t.output.prefix(out);
+                    let diff = t.output.inverse(prefix);
+                    out.inverse_assign(prefix);
                     t.output = prefix;
                     diff
                 }
@@ -161,24 +162,24 @@ impl DanglingPath {
 }
 
 
-type Registry = FnvHashMap<State, Index>;
+type Registry<I, O> = FnvHashMap<State<I, O>, I>;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Builder {
-    pub registry : Registry,
-    dangling : DanglingPath,
+pub struct Builder<I, O> where I : Index, O : Output {
+    pub registry : Registry<I, O>,
+    dangling : DanglingPath<I, O>,
     previous_key : Option<Vec<u8>>,
-    usable_index : Index,
+    usable_index : I,
     language_size : usize,
-    root : Index,
+    root : I,
 }
 
-impl Builder {
-    fn register(&mut self, state : State) -> Index {
+impl<I, O> Builder<I, O> where I : Index, O : Output {
+    fn register(&mut self, state : State<I, O>) -> I {
         let idx = &mut self.usable_index;
         * self.registry.entry(state).or_insert_with(|| {
             let i = *idx;
-            *idx += 1;
+            *idx += I::one();
             i
         })
     }
@@ -196,7 +197,7 @@ impl Builder {
         if let Some(i) = idx { self.dangling.finalize_last(i) }
     }
 
-    fn finalize_root(&mut self) -> Index {
+    fn finalize_root(&mut self) -> I {
         let root = self.dangling.pop_root();
         self.register(root)
     }
@@ -211,7 +212,7 @@ impl Builder {
         }
     }
 
-    pub fn insert(&mut self, key : &[u8], value : u16) {
+    pub fn insert(&mut self, key : &[u8], value : O) {
         self.check_key(key);
         if key.is_empty() {
             self.dangling.set_root_output(value);
@@ -225,16 +226,16 @@ impl Builder {
         self.language_size += 1;
     }
 
-    pub fn finish(&mut self) -> Index {
+    pub fn finish(&mut self) -> I {
         self.finalize_subpath(0);
         let root_idx = self.finalize_root();
         self.root = root_idx;
         root_idx
     }
 
-    pub fn from_iter<K, I>(iter : I) -> Builder
+    pub fn from_iter<K, T>(iter : T) -> Builder<I, O>
         where K : AsRef<[u8]>
-            , I : IntoIterator<Item = (K, u16)>
+            , T : IntoIterator<Item = (K, O)>
     {
         let mut builder = Builder { dangling : DanglingPath::new(), ..Builder::default() };
         for (k, v) in iter { builder.insert(k.as_ref(), v) }
@@ -243,7 +244,7 @@ impl Builder {
         builder
     }
 
-    pub fn root(&self) -> Index { self.root }
+    pub fn root(&self) -> I { self.root }
 
     pub fn size(&self) -> usize { self.registry.len() }
 
