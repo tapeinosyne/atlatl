@@ -1,8 +1,6 @@
-> In progress
-
 # Atlatl
 
-Preliminary work on Rust double-array tries — which is to say, DARTs.
+Preliminary work on Rust double-array tries – which is to say, DARTs.
 
 Presently, only a limited-capability Dart representation of minimal finite subsequential transducers.
 
