@@ -1,5 +1,8 @@
 use fnv::FnvHashMap;
+use std::cmp;
+use std::collections::hash_map::Entry;
 
+use fst::error::{Error, Result};
 use fst::output::Output;
 use index::Index;
 
@@ -169,79 +172,100 @@ pub struct Builder<I, O> where I : Index, O : Output {
     pub registry : Registry<I, O>,
     dangling : DanglingPath<I, O>,
     previous_key : Option<Vec<u8>>,
-    usable_index : I,
+    transition_count : usize,
+    usable_index : usize,
     language_size : usize,
     root : I,
 }
 
 impl<I, O> Builder<I, O> where I : Index, O : Output {
-    fn register(&mut self, state : State<I, O>) -> I {
+    fn register(&mut self, state : State<I, O>) -> Result<I> {
         let idx = &mut self.usable_index;
-        * self.registry.entry(state).or_insert_with(|| {
-            let i = *idx;
-            *idx += I::one();
-            i
-        })
+        let trans_r = &mut self.transition_count;
+        let trans_s = state.transitions.len();
+
+        match self.registry.entry(state) {
+            Entry::Occupied(e) => Ok(*e.get()),
+            Entry::Vacant(e) => {
+                let s_i = *idx;
+                *idx += 1;
+                *trans_r += trans_s;
+                match s_i > I::bound() || *trans_r > I::bound() {
+                    true => Err(Error::OutOfBounds {
+                        reached : cmp::max(s_i, *trans_r),
+                        maximum : I::max_value().as_usize()
+                    }),
+                    false => Ok(*e.insert(I::as_index(s_i)))
+                }
+            }
+        }
     }
 
-    fn finalize_subpath(&mut self, path_start : usize) {
+    fn finalize_subpath(&mut self, path_start : usize) -> Result<()> {
         let mut idx = None;
         while path_start + 1 < self.dangling.len() {
             let state = match idx {
                 Some(i) => self.dangling.finalize(i),
                 None => self.dangling.pop_empty()
             };
-            idx = self.register(state).into();
+            idx = Some( self.register(state) ? );
         }
         // By construction, the last state remaining has no last_arc if `idx` is None
         if let Some(i) = idx { self.dangling.finalize_last(i) }
+        Ok(())
     }
 
-    fn finalize_root(&mut self) -> I {
+    fn finalize_root(&mut self) -> Result<I> {
         let root = self.dangling.pop_root();
         self.register(root)
     }
 
-    fn check_key(&mut self, key : &[u8]) {
+    fn validate_key<'a>(&mut self, key : &'a [u8]) -> Result<&'a [u8]> {
         match self.previous_key {
             Some(ref prev) if key == prev.as_slice() =>
-                panic!("Duplicate key: {:?}", key),
+                Err(Error::Duplicate(key.to_vec())),
             Some(ref prev) if key <  prev.as_slice() =>
-                panic!("Out of order: {:?}, {:?}", key, prev),
-            _ => self.previous_key = key.to_vec().into()
+                Err(Error::OutOfOrder(key.to_vec(), prev.to_vec())),
+            _ => {
+                self.previous_key = key.to_vec().into();
+                Ok(key)
+            }
         }
     }
 
-    pub fn insert(&mut self, key : &[u8], value : O) {
-        self.check_key(key);
+    pub fn insert(&mut self, key : &[u8], value : O) -> Result<()> {
+        let key = self.validate_key(key) ?;
         if key.is_empty() {
             self.dangling.set_root_output(value);
             self.language_size = 1;
-            return;
+            return Ok(());
         }
         let (prefix_len, output) = self.dangling.redistribute_prefix(key, value);
-        self.finalize_subpath(prefix_len);
+        self.finalize_subpath(prefix_len) ?;
         let suffix = &key[prefix_len ..];
         self.dangling.add_suffix(suffix, output);
         self.language_size += 1;
+        Ok(())
     }
 
-    pub fn finish(&mut self) -> I {
-        self.finalize_subpath(0);
-        let root_idx = self.finalize_root();
-        self.root = root_idx;
-        root_idx
+    pub fn finish(&mut self) -> Result<I> {
+        self.finalize_subpath(0)
+            .and_then(|_| self.finalize_root())
+            .map(|i| {
+                self.root = i;
+                i
+            })
     }
 
-    pub fn from_iter<K, T>(iter : T) -> Builder<I, O>
+    pub fn from_iter<K, T>(iter : T) -> Result<Builder<I, O>>
         where K : AsRef<[u8]>
             , T : IntoIterator<Item = (K, O)>
     {
         let mut builder = Builder { dangling : DanglingPath::new(), ..Builder::default() };
-        for (k, v) in iter { builder.insert(k.as_ref(), v) }
-        builder.finish();
+        for (k, v) in iter { builder.insert(k.as_ref(), v) ? }
+        builder.finish() ?;
 
-        builder
+        Ok(builder)
     }
 
     pub fn root(&self) -> I { self.root }

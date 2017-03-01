@@ -1,11 +1,14 @@
 pub mod builder;
+pub mod error;
 pub mod output;
 
 use fnv::FnvHashMap;
-use segment::IndexSegments;
+use std::marker::PhantomData;
 
-use index::Index;
+use fst::error::{Error, Result};
 use fst::output::Output;
+use index::Index;
+use segment::IndexSegments;
 
 
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
@@ -68,10 +71,10 @@ pub struct Dart<I, O> {
 pub struct State<I> { pub index : I, pub terminal : Terminal }
 
 impl<I, O> FST<I, O> where I : Index, O : Output {
-    pub fn from_builder(builder : &builder::Builder<I, O>) -> Self {
+    pub fn from_builder(builder : &builder::Builder<I, O>) -> Result<Self> {
         let mut repr = Repr::default();
-        repr.from_builder(builder);
-        repr.into_dart()
+        repr.from_builder(builder) ?;
+        Ok(repr.into_dart())
     }
 
     pub fn transition(&self, state : I, input : u8) -> Option<State<I>> {
@@ -161,7 +164,7 @@ impl<I, O> Repr<I, O> where I : Index, O : Output {
         self.fst
     }
 
-    pub fn from_builder(&mut self, fst : &builder::Builder<I, O>) {
+    pub fn from_builder(&mut self, fst : &builder::Builder<I, O>) -> Result<(), I> {
         self.reserve(fst.size());
         self.registry.resize(fst.size(), None);
         let eph = &builder::State::default();
@@ -170,7 +173,7 @@ impl<I, O> Repr<I, O> where I : Index, O : Output {
 
         self.expand();
         let root_idx = fst.root().as_usize();
-        let root_next = I::as_index(self.settle(states[root_idx]));
+        let root_next = I::as_index( self.settle(states[root_idx]) ?);
         self.fst.da.next[0] = root_next;
         self.registry[root_idx] = Some(root_next);
         if states[root_idx].terminal {
@@ -198,7 +201,7 @@ impl<I, O> Repr<I, O> where I : Index, O : Output {
                 self.fst.da.next[e] = match self.registry[t] {
                     Some(i) => i,
                     None => {
-                        let next = I::as_index(self.settle(&states[t]));
+                        let next = I::as_index( self.settle(&states[t]) ?);
                         self.registry[t] = Some(next);
                         self.stack.push(t);
                         if terminal.is_inner() {
@@ -209,11 +212,17 @@ impl<I, O> Repr<I, O> where I : Index, O : Output {
                 };
             }
         }
+
+        Ok(())
     }
 
-    fn settle(&mut self, state : &builder::State<I, O>) -> usize {
+    fn settle(&mut self, state : &builder::State<I, O>) -> Result<usize, I> {
         let inputs : Vec<_> = state.transitions.iter().map(|t| t.label).collect();
-        self.first_available(&inputs)
+        let base = self.first_available(&inputs);
+        match base > I::bound() {
+            true => Err(Error::OutOfBounds { reached : base, index : PhantomData }),
+            false => Ok(base)
+        }
     }
 
     fn first_available(&mut self, symbols : &[u8]) -> usize {

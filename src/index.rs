@@ -1,18 +1,23 @@
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::ops::{AddAssign, SubAssign};
 
-use num_traits::Unsigned;
+use num_traits::{Unsigned, Bounded};
 
 
 /// A minimal trait for unchecked casting of unsigned integers to `usize`,
 /// for indexing purposes.
 pub trait Index
-    : Unsigned  // An unsigned integer—
-    + Eq + Copy + Hash  // —with the properties we require—
+    : Unsigned + Bounded  // An unsigned integer—
+    + Eq + Copy + Hash    // —with the properties we require—
     + Default + AddAssign + SubAssign  // —and a bit of convenience.
+    + Debug + Display
 {
     fn as_usize(self) -> usize;
     fn as_index(i : usize) -> Self;
+
+    #[inline(always)]
+    fn bound() -> usize { Self::max_value().as_usize() }
 }
 
 macro_rules! impl_index {
