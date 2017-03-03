@@ -23,7 +23,6 @@ pub struct Stipe {
     pub terminal : Terminal
 }
 
-
 /// Finality of a transition's destination state.
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -46,6 +45,7 @@ impl Default for Terminal {
 }
 
 
+/// Hybrid Dart representation for a finite subsequential transducer.
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FST<I, O> where I : Index, O : Output {
@@ -53,6 +53,7 @@ pub struct FST<I, O> where I : Index, O : Output {
     pub state_output : FnvHashMap<I, O>
 }
 
+/// The double-array trie, holding the core state machine for the FST.
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Dart<I, O> {
@@ -71,6 +72,7 @@ impl<I, O> FST<I, O> where I : Index, O : Output {
         Ok(repr.into_dart())
     }
 
+    /// Given a starting state and an input, returns the destination state, if any.
     pub fn transition(&self, state : I, input : u8) -> Option<State<I>> {
         let e = state.as_usize() + (1 + input as usize);
         match self.da.stipe.get(e) {
@@ -80,6 +82,7 @@ impl<I, O> FST<I, O> where I : Index, O : Output {
         }
     }
 
+    /// Returns whether the key is present in the FST.
     pub fn contains<K>(&self, key : K) -> bool
         where K : AsRef<[u8]>
     {
@@ -95,6 +98,7 @@ impl<I, O> FST<I, O> where I : Index, O : Output {
         state.terminal.is()
     }
 
+    /// Get the value associated to the key, if any.
     pub fn get<K>(&self, key : K) -> Option<O>
         where K : AsRef<[u8]>
     {
@@ -121,6 +125,8 @@ impl<I, O> FST<I, O> where I : Index, O : Output {
         }
     }
 
+    /// Returns an iterator producing the values associated to all prefixes
+    /// of the query, including the empty string and the query itself.
     pub fn reap<'a, 'q>(&'a self, query : &'q [u8]) -> Reaper<'a, 'q, I, O> {
         let root_output = match self.da.stipe[0].terminal {
             Terminal::Not   => None,
@@ -138,6 +144,8 @@ impl<I, O> FST<I, O> where I : Index, O : Output {
         }
     }
 
+    /// Returns an iterator producing the values associated to all prefixes
+    /// of the query, including the query itself but excluding the empty string.
     pub fn reap_past_root<'a, 'q>(&'a self, query : &'q [u8]) -> RootlessReaper<'a, 'q, I, O> {
         RootlessReaper {
             query : query.into_iter(),
@@ -148,6 +156,7 @@ impl<I, O> FST<I, O> where I : Index, O : Output {
         }
     }
 
+    /// The number of nodes in the internal double array, including surplus.
     pub fn len(&self) -> usize {
         assert!(self.da.next.len() == self.da.stipe.len());
         assert!(self.da.next.len() == self.da.output.len());
