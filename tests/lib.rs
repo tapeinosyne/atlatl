@@ -23,3 +23,16 @@ fn fst_output_matches_source() {
 
     quickcheck(property as fn(BTreeMap<Vec<u8>, u16>) -> bool);
 }
+
+#[test]
+fn fst_reap() {
+    let pairs = &[("", 3), ("a", 0), ("ab", 1), ("abc", 2)];
+    let b = fst::Builder::from_iter(pairs.iter().cloned()).unwrap();
+    let fst : FST<u32, i16> = FST::from_builder(&b).unwrap();
+
+    let reaper = fst.reap("abcd".as_bytes());
+    assert!((1, Some(5)) == reaper.size_hint());
+    let reaped : Vec<_> = reaper.collect();
+    assert!(4 == reaped.len());
+    assert!(vec![(0, 3), (1, 0), (2, 1), (3, 2)] == reaped);
+}
