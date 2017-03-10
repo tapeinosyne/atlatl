@@ -79,7 +79,7 @@ macro_rules! bench_fst {
         #[bench]
         fn $name(b: &mut Bencher) {
             let iter = $source.iter().map(|&(ref k, v)| (k.as_slice(), v));
-            let fst_b = atlatl::fst::builder::Builder::from_iter(iter).unwrap();
+            let fst_b = atlatl::fst::Builder::from_iter(iter).unwrap();
             let fst : FST<usize, _> = FST::from_builder(&fst_b).unwrap();
             let key = $sample[0];
 

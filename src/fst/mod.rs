@@ -3,14 +3,17 @@ pub mod error;
 pub mod intermediate;
 pub mod output;
 
+pub use self::builder::Builder;
+pub use self::error::Error;
+pub use self::output::Output;
+
+
 use fnv::FnvHashMap;
 use std::slice;
 
-use fst::error::{Error, Result};
+use fst::error::Result;
 use fst::intermediate::Intermediary;
-use fst::output::Output;
 use index::Index;
-use segment::IndexSegments;
 
 
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
