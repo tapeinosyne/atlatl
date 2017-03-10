@@ -10,10 +10,10 @@ use atlatl::fst::*;
 
 
 #[test]
-fn fst_output_matches_source() {
+fn fst_output_matches_source_u32_u16() {
     fn property(btree: BTreeMap<Vec<u8>, u16>) -> bool {
-        let b = fst::builder::Builder::from_iter(btree.iter().map(|(k, &v)| (k, v))).unwrap();
-        let fst : FST<usize, u16> = FST::from_builder(&b).unwrap();
+        let b = fst::Builder::from_iter(btree.iter().map(|(k, &v)| (k, v))).unwrap();
+        let fst : FST<u32, u16> = FST::from_builder(&b).unwrap();
 
         btree.iter().all(|(k, &from_btree)| {
             let from_fst = fst.get(k).unwrap();
@@ -23,6 +23,22 @@ fn fst_output_matches_source() {
 
     quickcheck(property as fn(BTreeMap<Vec<u8>, u16>) -> bool);
 }
+
+#[test]
+fn fst_output_matches_source_u32_i16() {
+    fn property(btree: BTreeMap<Vec<u8>, i16>) -> bool {
+        let b = fst::Builder::from_iter(btree.iter().map(|(k, &v)| (k, v))).unwrap();
+        let fst : FST<u32, i16> = FST::from_builder(&b).unwrap();
+
+        btree.iter().all(|(k, &from_btree)| {
+            let from_fst = fst.get(k).unwrap();
+            from_fst == from_btree
+        })
+    }
+
+    quickcheck(property as fn(BTreeMap<Vec<u8>, i16>) -> bool);
+}
+
 
 #[test]
 fn fst_reap() {
