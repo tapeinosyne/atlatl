@@ -37,19 +37,8 @@ pub enum Terminal {
 }
 
 impl Terminal {
-    fn is(self) -> bool {
-        match self {
-            Terminal::Not => false,
-            _ => true
-        }
-    }
-
-    fn is_inner(self) -> bool {
-        match self {
-            Terminal::Inner => true,
-            _ => false
-        }
-    }
+    #[inline] pub fn is(self) -> bool { self != Terminal::Not }
+    #[inline] pub fn is_inner(self) -> bool { self == Terminal::Inner }
 }
 
 impl Default for Terminal {

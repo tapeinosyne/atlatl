@@ -33,17 +33,7 @@ struct DanglingArc<O> {
 
 impl<O> DanglingArc<O> where O : Output {
     fn from_label(label : Label) -> DanglingArc<O> {
-        DanglingArc {
-            label : label,
-            ..DanglingArc::default()
-        }
-    }
-
-    fn from_pair(label : Label, output : O) -> DanglingArc<O> {
-        DanglingArc {
-            label : label,
-            output : output
-        }
+        DanglingArc { label, ..DanglingArc::default() }
     }
 }
 
@@ -69,13 +59,9 @@ impl<I, O> DanglingState<I, O> where I : Index, O : Output {
         }
     }
 
-    fn affix_last(&mut self, index : I) {
-        if let Some(arc) = self.last_arc.take() {
-            self.state.transitions.push(Transition {
-                label : arc.label,
-                output : arc.output,
-                destination : index,
-            });
+    fn affix_last(&mut self, destination : I) {
+        if let Some(DanglingArc { label, output }) = self.last_arc.take() {
+            self.state.transitions.push(Transition { destination, label, output });
         }
     }
 
@@ -137,7 +123,7 @@ impl<I, O> DanglingPath<I, O> where I : Index, O : Output {
         let last = self.stack.len() - 1;
         assert!(self.stack[last].last_arc.is_none());
 
-        self.stack[last].last_arc = Some(DanglingArc::from_pair(suffix[0], output));
+        self.stack[last].last_arc = Some(DanglingArc { output, label : suffix[0] });
         self.stack.extend(suffix[1..].iter().map(|&l| DanglingState::from_label(l)));
         self.stack.push(DanglingState::empty_terminal());
     }
