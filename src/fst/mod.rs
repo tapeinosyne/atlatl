@@ -1,11 +1,13 @@
 pub mod builder;
 pub mod error;
+pub mod intermediate;
 pub mod output;
 
 use fnv::FnvHashMap;
 use std::marker::PhantomData;
 
 use fst::error::{Error, Result};
+use fst::intermediate::Intermediary;
 use fst::output::Output;
 use index::Index;
 use segment::IndexSegments;
@@ -72,7 +74,7 @@ pub struct State<I> { pub index : I, pub terminal : Terminal }
 
 impl<I, O> FST<I, O> where I : Index, O : Output {
     pub fn from_builder(builder : &builder::Builder<I, O>) -> Result<Self> {
-        let mut repr = Repr::default();
+        let mut repr = Intermediary::default();
         repr.from_builder(builder) ?;
         Ok(repr.into_dart())
     }
@@ -143,112 +145,5 @@ impl<I, O> FST<I, O> where I : Index, O : Output {
         self.da.stipe.reserve(n);
         self.da.next.reserve(n);
         self.da.output.reserve(n);
-    }
-}
-
-
-type BuilderState = usize;
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Repr<I, O> where I : Index, O : Output {
-    stack : Vec<BuilderState>,
-    // Indexed by BuilderState
-    registry : Vec<Option<I>>,
-    segments : IndexSegments,
-    // alphabet : Alphabet,
-    fst : FST<I, O>
-}
-
-impl<I, O> Repr<I, O> where I : Index, O : Output {
-    pub fn into_dart(self) -> FST<I, O> {
-        self.fst
-    }
-
-    pub fn from_builder(&mut self, fst : &builder::Builder<I, O>) -> Result<(), I> {
-        self.reserve(fst.size());
-        self.registry.resize(fst.size(), None);
-        let eph = &builder::State::default();
-        let mut states = vec![eph; fst.size()];
-        for (state, &s_i) in fst.registry.iter() { states[s_i.as_usize()] = state }
-
-        self.expand();
-        let root_idx = fst.root().as_usize();
-        let root_next = I::as_index( self.settle(states[root_idx]) ?);
-        self.fst.da.next[0] = root_next;
-        self.registry[root_idx] = Some(root_next);
-        if states[root_idx].terminal {
-            self.fst.da.stipe[0].terminal = Terminal::Inner;
-            self.fst.state_output.insert(I::zero(), states[root_idx].final_output);
-        }
-
-        self.stack.push(root_idx);
-        while let Some(s_i) = self.stack.pop() {
-            for trans in &states[s_i].transitions {
-                let t = trans.destination.as_usize();
-                let (is_final, final_output) = (states[t].terminal, states[t].final_output);
-                let terminal = match (is_final, final_output.is_zero()) {
-                    (false, _) => Terminal::Not,
-                    (true, true) => Terminal::Empty,
-                    (true, false) => Terminal::Inner
-                };
-
-                let label = trans.label;
-                let e = self.registry[s_i].unwrap().as_usize() + (1 + label as usize);
-                if e >= self.fst.len() { self.expand(); }
-
-                self.fst.da.output[e] = trans.output;
-                self.fst.da.stipe[e] = Stipe { check: label, terminal: terminal };
-                self.fst.da.next[e] = match self.registry[t] {
-                    Some(i) => i,
-                    None => {
-                        let next = I::as_index( self.settle(&states[t]) ?);
-                        self.registry[t] = Some(next);
-                        self.stack.push(t);
-                        if terminal.is_inner() {
-                            self.fst.state_output.insert(next, final_output);
-                        }
-                        next
-                    }
-                };
-            }
-        }
-
-        Ok(())
-    }
-
-    fn settle(&mut self, state : &builder::State<I, O>) -> Result<usize, I> {
-        let inputs : Vec<_> = state.transitions.iter().map(|t| t.label).collect();
-        let base = self.first_available(&inputs);
-        match base > I::bound() {
-            true => Err(Error::OutOfBounds { reached : base, index : PhantomData }),
-            false => Ok(base)
-        }
-    }
-
-    fn first_available(&mut self, symbols : &[u8]) -> usize {
-        self.segments.settle(symbols).or_else(|| {
-            self.expand();
-            self.segments.settle(symbols)
-        }).unwrap()
-    }
-
-    fn expand(&mut self) -> usize {
-        let old_length = self.len();
-        self.fst.resize(old_length + 256);
-        self.segments.expand()
-    }
-
-    fn reserve(&mut self, n : usize) {
-        self.fst.reserve(n);
-        self.segments.reserve(n);
-        self.registry.reserve(n);
-    }
-
-    pub fn len(&self) -> usize {
-        self.fst.len()
-    }
-
-    pub fn unfixed_count(&self) -> usize {
-        self.segments.unfixed_count()
     }
 }
