@@ -16,7 +16,7 @@ use fst::intermediate::Intermediary;
 use index::Index;
 
 
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Stipe {
     pub check : u8,
@@ -24,7 +24,7 @@ pub struct Stipe {
 }
 
 /// Finality of a transition's destination state.
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Terminal {
     /// The transition is not final.
@@ -46,7 +46,7 @@ impl Default for Terminal {
 
 
 /// Hybrid Dart representation for a finite subsequential transducer.
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FST<I, O> where I : Index, O : Output {
     pub da : Dart<I, O>,
@@ -54,7 +54,7 @@ pub struct FST<I, O> where I : Index, O : Output {
 }
 
 /// The double-array trie, holding the core state machine for the FST.
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Dart<I, O> {
     pub stipe : Vec<Stipe>,

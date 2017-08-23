@@ -1,8 +1,8 @@
 // Forsaken docs justly quibble the vexed programmer's waning zeal.
 extern crate fnv;
 extern crate num_traits;
-#[cfg(feature = "serialization")]
-#[macro_use] extern crate serde_derive;
+#[cfg(feature = "serde")]
+#[macro_use] extern crate serde;
 
 mod segment;
 pub mod fst;

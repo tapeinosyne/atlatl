@@ -13,14 +13,11 @@ description = "Double-array tries."
 # categories = ["data-structures"]
 keywords = ["double-array", "trie"]
 
-[features]
-serialization = ["serde", "serde_derive"]
 
 [dependencies]
 fnv = "1.0"
 num-traits = "0.1"
-serde = { version = "1.0", optional = true }
-serde_derive = { version = "1.0", optional = true }
+serde = { version = "1.0", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 fst = "0.1"
