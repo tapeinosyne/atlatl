@@ -9,7 +9,8 @@ extern crate test;
 #[macro_use] extern crate lazy_static;
 
 use fnv::FnvHashMap;
-use rand::{thread_rng, Rand, Rng, sample};
+use rand::distributions::{Distribution, Standard, Uniform};
+use rand::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::iter::FromIterator;
 use test::{Bencher, black_box};
@@ -36,14 +37,14 @@ lazy_static! {
 
 
 fn pairs<U>(n : usize, (l, r) : (usize, usize)) -> Vec<(Vec<u8>, U)>
-    where U : Ord + Rand
+    where Standard : Distribution<U>, U : Ord
 {
-    let mut rng = thread_rng();
+    let key_length = Uniform::from(l .. r);
+    let gen_key = |k_l| thread_rng().sample_iter::<u8, Standard>(&Standard).take(k_l).collect();
     let mut v : Vec<(Vec<u8>, U)> =
-        (0 .. n).map(|_| {
-            let l_k = rng.gen_range(l, r);
-            (rng.gen_iter::<u8>().take(l_k).collect(), rng.gen::<U>())
-    }).collect();
+        thread_rng().sample_iter(&key_length).take(n)
+            .map(|k_l| (gen_key(k_l), rand::random()))
+        .collect();
     v.sort();
     v.dedup_by(|a, b| a.0 == b.0);
     v
@@ -55,7 +56,7 @@ fn key_sample<'a, I, T>(kvs : I, max_len : usize, amount : usize) -> Vec<&'a [u8
 {
     let keys = kvs.map(|&(ref k, _)| k.as_slice())
                   .filter(|k| k.len() <= max_len);
-    sample(&mut thread_rng(), keys, amount)
+    rand::seq::sample_iter(&mut thread_rng(), keys, amount).unwrap()
 }
 
 
