@@ -1,5 +1,14 @@
 # `atlatl`
 
+## 0.1.2
+
+### Dependencies
+
+- `lazy_static` → 1.1
+- `num-traits` → 0.2
+- `quickcheck` → 0.7
+- `rand` → 0.5
+
 
 ## 0.1.1
 
