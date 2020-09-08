@@ -20,7 +20,7 @@ num-traits = "0.2"
 serde = { version = "1.0", optional = true, features = ["derive"] }
 
 [dev-dependencies]
-fst = "0.1"
+fst = "0.4"
 lazy_static = "1.1"
 quickcheck = "0.7"
 rand = "0.7"
